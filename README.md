@@ -1,7 +1,7 @@
 # Riskproof
 
 Verifiable on-chain accountability layer for AI agents acting in DeFi.
-Built for Colosseum's Crypto World's Fair (deadline Oct 12, 2026).
+Built for Colosseum's Crypto World's Fair.
 
 ## Status
 
