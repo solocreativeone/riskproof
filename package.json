@@ -1,0 +1,20 @@
+{
+  "name": "riskproof",
+  "version": "1.0.0",
+  "description": "Verifiable on-chain accountability layer for AI agents acting in DeFi. Built for Colosseum's Crypto World's Fair (deadline Oct 12, 2026).",
+  "main": "hardhat.config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^18.0.4",
+    "hardhat": "^2.29.1"
+  }
+}
