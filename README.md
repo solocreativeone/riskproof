@@ -40,8 +40,4 @@ Copy the deployed address, then verify on Arbiscan:
 npx hardhat verify --network arbitrumSepolia <address>
 ```
 
-## Next step
 
-Deploy the contract to Arbitrum Sepolia testnet, then connect
-`risk_engine.py`'s output to a `logRiskEvent()` transaction
-(via ethers.js or web3.py) whenever severity is Medium or above.
