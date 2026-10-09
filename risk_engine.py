@@ -11,7 +11,7 @@ position instead of a live one, and reuses the Low/Medium/High/Critical
 severity rubric from the Flare Summer Signal project.
 """
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Literal
 
 Severity = Literal["low", "medium", "high", "critical"]
@@ -55,25 +55,32 @@ class RiskAssessment:
 #   health_factor = (collateral * liquidation_threshold) / debt
 #
 # A health factor below 1.0 means the position is liquidatable.
-# liquidation_threshold is a placeholder default (see Health Factor
-# Calculator's known limitation: not pulled live from any protocol).
+# liquidation_threshold is a placeholder default.
 
 DEFAULT_LIQUIDATION_THRESHOLD = 0.80
+DEBT_FREE_HEALTH_FACTOR = 999.0
 
 
-def compute_health_factor(collateral: float, debt: float,
-                           liquidation_threshold: float = DEFAULT_LIQUIDATION_THRESHOLD) -> float:
+def compute_health_factor(
+    collateral: float,
+    debt: float,
+    liquidation_threshold: float = DEFAULT_LIQUIDATION_THRESHOLD,
+) -> float:
+    # Insolvent or negative collateral is immediate critical liquidation risk
+    if collateral < 0:
+        return 0.0
+
+    # No debt with non-negative collateral has zero liquidation risk.
+    # Return 999.0 sentinel instead of float("inf") for standard JSON compatibility
     if debt <= 0:
-        # No debt means no liquidation risk; return a large sentinel value.
-        return float("inf")
+        return DEBT_FREE_HEALTH_FACTOR
+
     return (collateral * liquidation_threshold) / debt
 
 
 # --- Severity mapping ----------------------------------------------------
 #
 # Maps a projected health factor to the Flare Summer Signal rubric.
-# Thresholds are a starting point, tune them once you have real test
-# scenarios to check them against.
 
 def health_factor_to_severity(hf: float) -> Severity:
     if hf < 1.05:
@@ -103,8 +110,12 @@ def severity_to_score(severity: Severity, hf: float) -> float:
 # --- Main entry point ------------------------------------------------
 
 def assess_action(action: ProposedAction) -> RiskAssessment:
-    projected_collateral = action.current_position.collateral + action.proposed_change.collateral_delta
-    projected_debt = action.current_position.debt + action.proposed_change.debt_delta
+    projected_collateral = (
+        action.current_position.collateral + action.proposed_change.collateral_delta
+    )
+    projected_debt = (
+        action.current_position.debt + action.proposed_change.debt_delta
+    )
 
     projected_hf = compute_health_factor(projected_collateral, projected_debt)
     severity = health_factor_to_severity(projected_hf)
@@ -126,7 +137,7 @@ def assess_action(action: ProposedAction) -> RiskAssessment:
 
 
 if __name__ == "__main__":
-    # Demo scenario: agent tries a risky leverage increase.
+    # Test 1: Standard risky action
     demo_action = ProposedAction(
         agent_id="agent-001",
         action_type="increase_leverage",
@@ -134,6 +145,16 @@ if __name__ == "__main__":
         current_position=Position(collateral=10000.0, debt=6000.0),
         proposed_change=ProposedChange(collateral_delta=0.0, debt_delta=2500.0),
     )
-
     result = assess_action(demo_action)
-    print(result.to_dict())
+    print("Standard Risky Action:", result.to_dict())
+
+    # Test 2: Edge-case negative collateral with zero debt (insolvent)
+    insolvent_action = ProposedAction(
+        agent_id="agent-001",
+        action_type="withdraw_collateral",
+        asset="ETH",
+        current_position=Position(collateral=100.0, debt=0.0),
+        proposed_change=ProposedChange(collateral_delta=-200.0, debt_delta=0.0),
+    )
+    insolvent_result = assess_action(insolvent_action)
+    print("Insolvent Edge Case:", insolvent_result.to_dict())

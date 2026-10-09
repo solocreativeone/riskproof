@@ -1,43 +1,195 @@
 # Riskproof
 
-Verifiable on-chain accountability layer for AI agents acting in DeFi.
-Built for Colosseum's Crypto World's Fair.
+Verifiable on-chain accountability layer for AI agents acting in DeFi. Built for Colosseum's Crypto World's Fair.
 
-## Status
+Autonomous AI agents executing DeFi transactions face severe principal-agent risks: reckless leverage, catastrophic liquidations, and hallucinated position sizing. Riskproof provides a pre-flight risk evaluation engine and an immutable on-chain accountability trail on Arbitrum Sepolia.
 
-- [x] Risk-scoring engine (`risk_engine.py`), done, tested locally
-- [x] `RiskProof.sol` contract, written and compiled successfully with Hardhat
-- [x] Hardhat test suite (`test/RiskProof.test.js`), all 4 tests passing:
-      logging an event, reading it back, rejecting an invalid risk score,
-      and rejecting an out-of-range read
-- [ ] Deploy to Arbitrum Sepolia
-- [ ] Wire risk engine output into `logRiskEvent()` call (Python -> chain)
-- [ ] Stretch: MCP tool wrapper
-- [ ] Stretch: Telegram alert
+Instead of burning gas on routine actions, Riskproof enforces selective on-chain logging: low-risk actions run off-chain for zero gas overhead, while high-risk actions (Medium, High, and Critical severity) commit cryptographic proofs directly to Arbitrum Sepolia before execution, alongside real-time Telegram alerts to position owners.
 
-Note: the contract's read function is named `getRiskEvent`, not `getEvent`,
-`getEvent` collides with a built-in method on ethers.js v6's Contract object.
+---
+
+## Verified Deployment
+
+- Network: Arbitrum Sepolia (Chain ID: 421614)
+- Contract Address: `0xA0046934fd8627695Ba76A879E421083C2487564`
+- Verified Contract Code: [https://sepolia.arbiscan.io/address/0xA0046934fd8627695Ba76A879E421083C2487564#code](https://sepolia.arbiscan.io/address/0xA0046934fd8627695Ba76A879E421083C2487564#code)
+- Sample Proof Transaction: [`0xa9d1fad970c67e123f46050db4d370b073edc707a983141482e69035e200e046`](https://sepolia.arbiscan.io/tx/0xa9d1fad970c67e123f46050db4d370b073edc707a983141482e69035e200e046)
+
+---
+
+## Architecture Flow
+
+Riskproof decouples fast pre-flight risk simulations from on-chain verification. Gas is spent exclusively when risk thresholds demand an immutable proof.
+
+```
++-------------------------------------------------------------------------+
+|                           Autonomous AI Agent                           |
+|                    (Proposes DeFi position change)                      |
++-------------------------------------------------------------------------+
+                                    |
+                                    v
++-------------------------------------------------------------------------+
+|                  Pre-Flight Risk Engine (risk_engine.py)                |
+|  - Calculates projected health factor (HF)                              |
+|  - Evaluates liquidation risk and assigns 0-100 risk score              |
+|  - Classifies severity: Low, Medium, High, Critical                     |
++-------------------------------------------------------------------------+
+                                    |
+           +------------------------+------------------------+
+           |                                                 |
+           v [Severity < Medium / Score < 50]                v [Severity >= Medium / Score >= 50]
++---------------------------------------+   +---------------------------------------+
+|          Off-Chain Pass-Through       |   |      Selective On-Chain Proof         |
+|  - Zero gas spent                     |   |  - RiskProof.logRiskEvent() called    |
+|  - No on-chain log required           |   |  - Transaction committed on Arbitrum  |
+|  - Safe action approved for execution |   |  - Immutable proof recorded on-chain  |
++---------------------------------------+   +---------------------------------------+
+                                                             |
+                                            +----------------+----------------+
+                                            |                                 |
+                                            v                                 v
+                            +-------------------------------+ +-------------------------------+
+                            |     Arbitrum Sepolia Log      | |  Telegram Alert (notifier.py) |
+                            |  RiskProof Contract Storage   | |  - Severity badge and risk HF |
+                            |  Permanent audit log on-chain | |  - Inline "View Proof" button |
+                            +-------------------------------+ +-------------------------------+
+```
+
+---
+
+## Repository Structure
+
+- `contracts/RiskProof.sol`: Solidity contract recording immutable risk proofs (`logRiskEvent`, `getRiskEvent`, `eventCount`).
+- `risk_engine.py`: Core math calculating health factors, severity bands, and risk scores.
+- `onchain_client.py`: Python Web3 client coordinating assessment and on-chain submission.
+- `mcp_server.py`: FastMCP server exposing tools for autonomous AI agent runtimes.
+- `notifier.py`: Telegram alert integration with HTML formatting and inline Arbiscan buttons.
+- `test_pipeline.py`: Comprehensive in-memory EVM test suite using eth-tester and py-evm.
+- `demo.py`: Live end-to-end demo testing Arbitrum Sepolia and Telegram dispatch.
+
+---
 
 ## Setup
 
 ```bash
+# Clone and install dependencies
 npm install
+pip install -r requirements.txt
+
+# Configure environment
 cp .env.example .env
-# fill in DEPLOYER_PRIVATE_KEY (testnet wallet only) and RPC URL if not using the default
+# Edit .env with your DEPLOYER_PRIVATE_KEY, RPC URL, and Telegram keys
+
+# Compile Solidity contracts
 npx hardhat compile
-npx hardhat test
 ```
 
-## Deploy to Arbitrum Sepolia
+---
+
+## Test Instructions
+
+Run the test suites across smart contracts and the Python pipeline:
+
+### 1. Smart Contract Tests
+Run the Hardhat Mocha/Chai test suite:
+```bash
+npx hardhat test
+```
+Verifies event emission, storage retrieval, score validation (0-100), and boundary error handling.
+
+### 2. In-Memory EVM Pipeline Tests
+Run the end-to-end Python test suite against an in-memory EVM chain:
+```bash
+pytest -v test_pipeline.py
+```
+Or execute directly with Python:
+```bash
+python3 test_pipeline.py
+```
+Automatically deploys `RiskProof.sol` to an ephemeral in-memory EVM (`eth-tester`), verifies that high-risk actions commit proofs on-chain, confirms that low-risk actions bypass gas spending, and inspects stored event records.
+
+---
+
+## Live Demo (Arbitrum Sepolia)
+
+Run the live pipeline demo against the deployed Arbitrum Sepolia contract:
+
+```bash
+python3 demo.py
+```
+
+This executes two simulated scenarios:
+1. Risky Leverage Increase: Projected health factor drops below liquidation threshold; commits proof to Arbitrum Sepolia and sends a Telegram alert with Arbiscan link.
+2. Safe Collateral Addition: Projected health factor increases; marked as Low severity and execution continues with zero gas spent.
+
+---
+
+## FastMCP Server Integration
+
+`mcp_server.py` provides a Model Context Protocol (MCP) server using FastMCP, allowing AI agents in environments like Claude Desktop, Cursor, and custom agent loops to evaluate risks autonomously.
+
+### Available Tools
+
+1. `simulate_risk`:
+   - Fast, zero-gas pre-flight simulation.
+   - Parameters: `agent_id`, `action_type`, `asset`, `current_collateral`, `current_debt`, `collateral_delta`, `debt_delta`.
+   - Returns projected health factor, severity tier, 0-100 risk score, explanation reason, and `requires_onchain_proof` flag.
+
+2. `evaluate_and_log_action`:
+   - Evaluates action risk and automatically commits proof to Arbitrum Sepolia if severity is Medium or higher.
+   - Dispatches a real-time Telegram alert with the transaction link upon confirmation.
+   - Returns execution summary with transaction hash and Arbiscan URL.
+
+3. `get_onchain_event_count`:
+   - Reads the current total count of accountability proofs logged on the `RiskProof` contract.
+
+### Sample Client Configuration
+
+Add this block to your MCP client configuration (such as `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "riskproof": {
+      "command": "python3",
+      "args": [
+        "/path/to/riskproof/mcp_server.py"
+      ],
+      "env": {
+        "ARBITRUM_SEPOLIA_RPC_URL": "https://sepolia-rollup.arbitrum.io/rpc",
+        "DEPLOYER_PRIVATE_KEY": "your_private_key_here",
+        "RISKPROOF_CONTRACT_ADDRESS": "0xA0046934fd8627695Ba76A879E421083C2487564",
+        "TELEGRAM_BOT_TOKEN": "your_telegram_bot_token_here",
+        "TELEGRAM_CHAT_ID": "your_telegram_chat_id_here"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Real-Time Alerts (Telegram)
+
+`notifier.py` delivers instant alerts whenever a Medium or higher risk event is committed to Arbitrum Sepolia:
+- Clean card layout with severity status (`🚨 CRITICAL`, `⚠️ HIGH`, `⚠️ MEDIUM`).
+- Health factor metrics and liquidation warning badges.
+- Sanitized HTML formatting preventing injection issues.
+- Inline keyboard button linking directly to the verified Arbiscan transaction proof.
+- Non-blocking error handling ensuring agent workflows proceed unimpeded if network notifications fail.
+
+---
+
+## Contract Deployment and Verification
+
+To deploy a new contract instance:
 
 ```bash
 npx hardhat run scripts/deploy.js --network arbitrumSepolia
 ```
 
-Copy the deployed address, then verify on Arbiscan:
+To verify the newly deployed contract on Arbiscan:
 
 ```bash
-npx hardhat verify --network arbitrumSepolia <address>
+npx hardhat verify --network arbitrumSepolia <DEPLOYED_CONTRACT_ADDRESS>
 ```
-
-

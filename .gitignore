@@ -6,3 +6,15 @@ coverage/
 *.log
 __pycache__/
 *.pyc
+
+# Python virtual environment & caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Build & test artifacts
+build/
+coverage/
