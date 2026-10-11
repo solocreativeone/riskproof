@@ -2,9 +2,9 @@
 
 Verifiable on-chain accountability layer for AI agents acting in DeFi. Built for Colosseum's Crypto World's Fair.
 
-Autonomous AI agents executing DeFi transactions face severe principal-agent risks: reckless leverage, catastrophic liquidations, and hallucinated position sizing. Riskproof provides a pre-flight risk evaluation engine and an immutable on-chain accountability trail on Arbitrum Sepolia.
+Autonomous AI agents executing DeFi transactions face severe principal-agent risks: reckless leverage, catastrophic liquidations, and hallucinated position sizing. Riskproof provides a pre-flight risk evaluation engine and a permanent on-chain accountability trail on Arbitrum Sepolia.
 
-Instead of burning gas on routine actions, Riskproof enforces selective on-chain logging: low-risk actions run off-chain for zero gas overhead, while high-risk actions (Medium, High, and Critical severity) commit cryptographic proofs directly to Arbitrum Sepolia before execution, alongside real-time Telegram alerts to position owners.
+Instead of paying gas on routine actions, Riskproof logs on-chain only when severity is Medium or higher. Low-risk actions are scored off-chain at no gas cost. Medium, High, and Critical assessments are written to the RiskProof contract on Arbitrum Sepolia as a public, timestamped record, and the position owner gets a real-time Telegram alert.
 
 ---
 
@@ -13,13 +13,13 @@ Instead of burning gas on routine actions, Riskproof enforces selective on-chain
 - Network: Arbitrum Sepolia (Chain ID: 421614)
 - Contract Address: `0xA0046934fd8627695Ba76A879E421083C2487564`
 - Verified Contract Code: [https://sepolia.arbiscan.io/address/0xA0046934fd8627695Ba76A879E421083C2487564#code](https://sepolia.arbiscan.io/address/0xA0046934fd8627695Ba76A879E421083C2487564#code)
-- Sample Proof Transaction: [`0xa9d1fad970c67e123f46050db4d370b073edc707a983141482e69035e200e046`](https://sepolia.arbiscan.io/tx/0xa9d1fad970c67e123f46050db4d370b073edc707a983141482e69035e200e046)
+- Sample Logged Transaction: [`0xa9d1fad970c67e123f46050db4d370b073edc707a983141482e69035e200e046`](https://sepolia.arbiscan.io/tx/0xa9d1fad970c67e123f46050db4d370b073edc707a983141482e69035e200e046)
 
 ---
 
 ## Architecture Flow
 
-Riskproof decouples fast pre-flight risk simulations from on-chain verification. Gas is spent exclusively when risk thresholds demand an immutable proof.
+Riskproof decouples fast pre-flight risk simulations from on-chain verification. Gas is spent only when risk thresholds call for an on-chain record.
 
 ```
 +-------------------------------------------------------------------------+
@@ -39,10 +39,10 @@ Riskproof decouples fast pre-flight risk simulations from on-chain verification.
            |                                                 |
            v [Severity < Medium / Score < 50]                v [Severity >= Medium / Score >= 50]
 +---------------------------------------+   +---------------------------------------+
-|          Off-Chain Pass-Through       |   |      Selective On-Chain Proof         |
+|          Off-Chain Pass-Through       |   |      Selective On-Chain Record        |
 |  - Zero gas spent                     |   |  - RiskProof.logRiskEvent() called    |
 |  - No on-chain log required           |   |  - Transaction committed on Arbitrum  |
-|  - Safe action approved for execution |   |  - Immutable proof recorded on-chain  |
+|  - Safe action approved for execution |   |  - Permanent record stored on-chain   |
 +---------------------------------------+   +---------------------------------------+
                                                              |
                                             +----------------+----------------+
@@ -59,7 +59,7 @@ Riskproof decouples fast pre-flight risk simulations from on-chain verification.
 
 ## Repository Structure
 
-- `contracts/RiskProof.sol`: Solidity contract recording immutable risk proofs (`logRiskEvent`, `getRiskEvent`, `eventCount`).
+- `contracts/RiskProof.sol`: Solidity contract recording on-chain risk events (`logRiskEvent`, `getRiskEvent`, `eventCount`).
 - `risk_engine.py`: Core math calculating health factors, severity bands, and risk scores.
 - `onchain_client.py`: Python Web3 client coordinating assessment and on-chain submission.
 - `mcp_server.py`: FastMCP server exposing tools for autonomous AI agent runtimes.
@@ -106,7 +106,7 @@ Or execute directly with Python:
 ```bash
 python3 test_pipeline.py
 ```
-Automatically deploys `RiskProof.sol` to an ephemeral in-memory EVM (`eth-tester`), verifies that high-risk actions commit proofs on-chain, confirms that low-risk actions bypass gas spending, and inspects stored event records.
+Automatically deploys `RiskProof.sol` to an ephemeral in-memory EVM (`eth-tester`), verifies that Medium and higher severity actions are logged on-chain, confirms that low-risk actions bypass gas spending, and inspects stored event records.
 
 ---
 
@@ -119,7 +119,7 @@ python3 demo.py
 ```
 
 This executes two simulated scenarios:
-1. Risky Leverage Increase: Projected health factor drops below liquidation threshold; commits proof to Arbitrum Sepolia and sends a Telegram alert with Arbiscan link.
+1. Risky Leverage Increase: Projected health factor drops below liquidation threshold; logs the assessment on Arbitrum Sepolia and sends a Telegram alert with an Arbiscan link.
 2. Safe Collateral Addition: Projected health factor increases; marked as Low severity and execution continues with zero gas spent.
 
 ---
@@ -136,12 +136,12 @@ This executes two simulated scenarios:
    - Returns projected health factor, severity tier, 0-100 risk score, explanation reason, and `requires_onchain_proof` flag.
 
 2. `evaluate_and_log_action`:
-   - Evaluates action risk and automatically commits proof to Arbitrum Sepolia if severity is Medium or higher.
+   - Evaluates action risk and automatically logs the assessment on Arbitrum Sepolia if severity is Medium or higher.
    - Dispatches a real-time Telegram alert with the transaction link upon confirmation.
    - Returns execution summary with transaction hash and Arbiscan URL.
 
 3. `get_onchain_event_count`:
-   - Reads the current total count of accountability proofs logged on the `RiskProof` contract.
+   - Reads the current total count of risk events logged on the `RiskProof` contract.
 
 ### Sample Client Configuration
 
@@ -175,8 +175,16 @@ Add this block to your MCP client configuration (such as `claude_desktop_config.
 - Clean card layout with severity status (`🚨 CRITICAL`, `⚠️ HIGH`, `⚠️ MEDIUM`).
 - Health factor metrics and liquidation warning badges.
 - Sanitized HTML formatting preventing injection issues.
-- Inline keyboard button linking directly to the verified Arbiscan transaction proof.
+- Inline keyboard button linking directly to the Arbiscan transaction.
 - Non-blocking error handling ensuring agent workflows proceed unimpeded if network notifications fail.
+
+---
+
+## Limitations (v1)
+
+- Health factor math uses an Aave v3 style liquidation threshold (0.80) and fixed severity cutoffs, not live protocol parameters.
+- `logRiskEvent()` is open to any caller. The `reporter` field records who wrote each entry, but v1 does not restrict who can log. An allowlist of authorized reporters is the next step.
+- The log records the assessment. Blocking execution is up to the agent runtime calling Riskproof first.
 
 ---
 
